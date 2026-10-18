@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check } from "@tauri-apps/plugin-updater";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import logo from "./assets/logo.png";
 
@@ -137,6 +139,32 @@ function App() {
   const [shareError, setShareError] = useState("");
   const [shareNotice, setShareNotice] = useState("");
   const [shareBusy, setShareBusy] = useState(false);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState("");
+
+  async function checkForUpdates() {
+    setUpdateBusy(true);
+    setUpdateStatus("");
+    try {
+      const update = await check();
+      if (!update) {
+        setUpdateStatus("Установлена последняя версия.");
+        return;
+      }
+      if (!window.confirm(`Доступна версия ${update.version}. Скачать и установить её?`)) {
+        setUpdateStatus(`Доступно обновление до версии ${update.version}.`);
+        return;
+      }
+      setUpdateStatus("Скачивание и установка обновления…");
+      await update.downloadAndInstall();
+      setUpdateStatus("Обновление установлено. Перезапуск приложения…");
+      await relaunch();
+    } catch (err) {
+      setUpdateStatus(`Не удалось обновить приложение: ${String(err)}`);
+    } finally {
+      setUpdateBusy(false);
+    }
+  }
 
   function closeShareDialog() {
     setShareDialogOpen(false);
@@ -522,6 +550,15 @@ function App() {
             </button>
           </form>
           {error && <p className="error">{error}</p>}
+          <button className="secondary auth-update" onClick={() => void checkForUpdates()} disabled={updateBusy}>
+            {updateBusy ? "Проверка обновлений…" : "Проверить обновления"}
+          </button>
+          {updateStatus && (
+            <p className={`update-status${updateStatus.startsWith("Не удалось") ? " error" : ""}`}
+              role={updateStatus.startsWith("Не удалось") ? "alert" : "status"}>
+              {updateStatus}
+            </p>
+          )}
           <p className="auth-footnote">
             Хранилище — один зашифрованный файл на этом устройстве. Мастер-пароль нигде не сохраняется.
           </p>
@@ -558,6 +595,15 @@ function App() {
           </div>
           <div className="sidebar-status">
             <span className="status-dot" /> Хранилище разблокировано
+            <button onClick={() => void checkForUpdates()} disabled={updateBusy}>
+              {updateBusy ? "Обновление…" : "Проверить обновления"}
+            </button>
+            {updateStatus && (
+              <span className={`update-status${updateStatus.startsWith("Не удалось") ? " error" : ""}`}
+                role={updateStatus.startsWith("Не удалось") ? "alert" : "status"}>
+                {updateStatus}
+              </span>
+            )}
             <button onClick={() => void lockVault()}>Заблокировать</button>
           </div>
         </aside>
