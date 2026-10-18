@@ -1,0 +1,30 @@
+[package]
+name = "blau"
+version = "0.1.0"
+description = "blau desktop application"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "blau_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+argon2 = "0.5"
+base32 = "0.5"
+base64 = "0.22"
+chacha20poly1305 = "0.10"
+hmac = "0.12"
+rand = "0.8"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha1 = "0.10"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+url = "2"
+zeroize = "1"
