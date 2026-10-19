@@ -1,6 +1,8 @@
-blau is an open source app, passwords vault that have TOTP feature and supports encryption 
-Available on Windows 7+
-Sharing feature is in the process of developing
+# blau
+
+**[⬇ Download for Windows](https://github.com/blau333/blau-pass/releases/latest/download/blau-setup.exe)**
+
+An open-source password vault with TOTP support and encryption. Available on Windows 7+. Sharing is in development.
 
 ## Windows updates
 
@@ -28,4 +30,4 @@ git tag v0.1.1
 git push origin v0.1.1
 ```
 
-The workflow publishes a signed Windows NSIS installer and updater metadata to the GitHub Release. Users can then select **Проверить обновления** in the app. The release tag must match the version in `tauri.conf.json`.
+The workflow publishes a signed Windows NSIS installer and updater metadata to the GitHub Release. It also publishes the installer as `blau-setup.exe`, so the download link at the top of this page always points to the latest version. Users can select **Проверить обновления** in the app. The release tag must match the version in `tauri.conf.json`.

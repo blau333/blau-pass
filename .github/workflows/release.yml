@@ -50,7 +50,20 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: blau ${{ github.ref_name }}
-          releaseBody: Download the installer below. Future versions can be installed from within the app.
+          releaseBody: Download blau-setup.exe below. Future versions can be installed from within the app.
           releaseDraft: false
           prerelease: false
           args: --bundles nsis
+
+      - name: Publish stable installer download
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $installers = @(Get-ChildItem -Path "src-tauri/target/release/bundle/nsis/*-setup.exe" -File)
+          if ($installers.Count -ne 1) {
+            throw "Expected exactly one NSIS installer, found $($installers.Count)."
+          }
+
+          Copy-Item $installers[0].FullName -Destination "blau-setup.exe"
+          gh release upload "$env:GITHUB_REF_NAME" "blau-setup.exe" --clobber
