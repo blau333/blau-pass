@@ -1,33 +1,43 @@
 # blau
 
-**[⬇ Download for Windows](https://github.com/blau333/blau-pass/releases/latest/download/blau-setup.exe)**
+Blau is a local, encrypted vault for passwords and other secrets. It runs on Windows and stores your data in an encrypted file on your device.
 
-An open-source password vault with TOTP support and encryption. Available on Windows 7+. Sharing is in development.
+**[Browse blau releases and download the Windows installer](https://github.com/blau333/blau-pass/releases)**
 
-## Windows updates
+If there are no releases listed, an installer has not been published yet.
 
-The app checks GitHub Releases for updates and installs signed updates after confirmation. Releases are built by `.github/workflows/release.yml` when a `v*` tag is pushed. Existing installations need to install the first updater-enabled release manually; later releases can be installed in the app.
+## Getting started
 
-### One-time updater signing setup
+1. Download and run the installer.
+2. The first time you launch blau, create a master password that is at least 12 characters long.
+3. Click **Добавить** (Add) to create an entry. You can save a website password, an SSH private key, or an API token. Password entries can also include a secret for generating two-factor authentication (2FA) codes.
+4. Find entries using search or the categories in the sidebar.
 
-The updater public key is configured in `src-tauri/tauri.conf.json`. The matching private key must be added as a GitHub Actions repository secret named `TAURI_SIGNING_PRIVATE_KEY`; for this checkout, the generated private key is stored locally at `%USERPROFILE%\.tauri\blau-pass-updater.key`. Copy the **contents** of that file into the secret, not its path. Never commit or share the private key.
+When you open blau again, enter your master password to unlock the vault. Click **Заблокировать** (Lock) when you are finished.
 
-To generate a replacement key pair, use PowerShell:
+## Back up and restore
 
-```powershell
-New-Item -ItemType Directory -Force "$env:USERPROFILE\.tauri"
-npm run tauri -- signer generate --ci --write-keys "$env:USERPROFILE\.tauri\blau-updater.key"
-```
+In the sidebar, click **Экспорт в файл** (Export to file) to save an encrypted backup with the `.rsv` extension. Keep the backup somewhere safe and create new backups regularly.
 
-If you replace the key, update `plugins.updater.pubkey` with the contents of the generated `.pub` file and replace the GitHub secret with the matching private key. The `--ci` option creates an unencrypted private key, so protect the file and secret; if you create a password-protected key instead, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+To restore your data, unlock blau, click **Импорт из файла** (Import from file), select the backup, and enter the master password that was used to create it. **Importing replaces all current entries.** The master password for the currently open vault remains unchanged.
 
-### Publishing an update
+## Security
 
-Set the `version` in `src-tauri/tauri.conf.json` to the new semantic version, commit the change, and push the matching version tag, for example:
+- Your data is stored locally in an encrypted vault. The master password is used for encryption and is not saved by the app.
+- The master password cannot be reset. Backups are encrypted too, so you need the password used to create a backup to import it.
+- Do not share your master password. Protect your device and backups.
+- When you copy a password or another secret, remember that it is placed on your clipboard.
 
-```powershell
-git tag v0.1.1
-git push origin v0.1.1
-```
+## Sharing
 
-The workflow publishes a signed Windows NSIS installer and updater metadata to the GitHub Release. It also publishes the installer as `blau-setup.exe`, so the download link at the top of this page always points to the latest version. Users can select **Проверить обновления** in the app. The release tag must match the version in `tauri.conf.json`.
+Sharing through **Google Sheets** is an experimental feature, not a way to sync your entire vault. You can select password entries to share or read a shared set. Only entry names, usernames, passwords, and website addresses are shared; SSH keys, API tokens, and notes are not included. Deleting an entry in blau does not remove it from the shared set.
+
+To use sharing, set up Google Apps Script and a spreadsheet, then enter the script URL, access token, spreadsheet URL, and shared encryption key in blau. The spreadsheet stores an encrypted package. Give participants the connection details, but share the encryption key separately from the spreadsheet link. Only share secrets with people you trust.
+
+## Updates
+
+Click **Проверить обновления** (Check for updates) in the app. If a new version is available, blau will offer to install it. Installers for published versions are available on the [releases page](https://github.com/blau333/blau-pass/releases).
+
+## Report a problem
+
+If you find a bug or have a suggestion, [open an issue on GitHub](https://github.com/blau333/blau-pass/issues/new).
