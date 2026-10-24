@@ -112,7 +112,7 @@ struct GoogleSheetResponse {
 }
 
 const ENTRY_ICONS: &[&str] = &[
-    "🌐", "🔐", "🔑", "🐙", "💼", "📧", "☁️", "🏦", "🎮", "🛒", "🖥️", "📱",
+    "🌐", "🔐", "🔑", "🐙", "💼", "📧", "☁️", "🏦", "🎮", "🛒", "🖥️", "📱", "📶",
 ];
 
 fn vault_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -251,6 +251,34 @@ fn lock(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn change_master_password(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    current_password: String,
+    new_password: String,
+) -> Result<(), String> {
+    let current_password = Zeroizing::new(current_password);
+    let new_password = Zeroizing::new(new_password);
+    if new_password.chars().count() < 12 {
+        return Err("Мастер-пароль должен быть не короче 12 символов".into());
+    }
+    let mut session = locked_session(&state)?;
+    let session = session
+        .as_mut()
+        .ok_or_else(|| "Хранилище заблокировано".to_string())?;
+    if session.password.as_str() != current_password.as_str() {
+        return Err("Текущий мастер-пароль указан неверно".into());
+    }
+    if session.password.as_str() == new_password.as_str() {
+        return Err("Новый мастер-пароль должен отличаться от текущего".into());
+    }
+    vault::save(&vault_path(&app)?, &new_password, &session.vault)
+        .map_err(|e| format!("Не удалось изменить мастер-пароль: {e}"))?;
+    session.password = new_password;
+    Ok(())
+}
+
+#[tauri::command]
 fn export_vault(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
@@ -312,7 +340,10 @@ fn list_entries(state: State<'_, AppState>) -> Result<Vec<EntrySummary>, String>
             username: entry.username.clone(),
             url: entry.url.clone(),
             kind: entry.kind,
-            has_password: entry.kind == vault::EntryKind::Password && !entry.password.is_empty(),
+            has_password: matches!(
+                entry.kind,
+                vault::EntryKind::Password | vault::EntryKind::WifiNetwork
+            ) && !entry.password.is_empty(),
             has_totp: entry.totp_secret.is_some(),
             has_api_token: entry.kind == vault::EntryKind::ApiToken && !entry.password.is_empty(),
             has_ssh_private_key: entry.kind == vault::EntryKind::SshKey
@@ -333,7 +364,9 @@ fn get_entry(state: State<'_, AppState>, name: String) -> Result<EntryDetails, S
         .ok_or_else(|| "Запись не найдена".to_string())?;
     let (code, seconds_remaining) = match entry.totp_secret.as_deref() {
         Some(secret) => {
-            let (code, remaining) = totp::current_code(secret).map_err(|e| e.to_string())?;
+            let config = entry.totp_config.unwrap_or_default();
+            let (code, remaining) =
+                totp::current_code(secret, &config).map_err(|e| e.to_string())?;
             (Some(code), Some(remaining))
         }
         None => (None, None),
@@ -343,7 +376,10 @@ fn get_entry(state: State<'_, AppState>, name: String) -> Result<EntryDetails, S
         icon: entry.icon.clone(),
         kind: entry.kind,
         username: entry.username.clone(),
-        password: if entry.kind == vault::EntryKind::Password {
+        password: if matches!(
+            entry.kind,
+            vault::EntryKind::Password | vault::EntryKind::WifiNetwork
+        ) {
             entry.password.clone()
         } else {
             String::new()
@@ -385,6 +421,9 @@ fn save_entry(
         vault::EntryKind::ApiToken if input.api_token.trim().is_empty() => {
             return Err("Введите API-токен".into())
         }
+        vault::EntryKind::WifiNetwork if input.password.trim().is_empty() => {
+            return Err("Введите пароль сети Wi-Fi".into())
+        }
         _ => {}
     }
     let mut session = locked_session(&state)?;
@@ -403,17 +442,23 @@ fn save_entry(
                 .ok_or_else(|| "Запись больше не существует".to_string())
         })
         .transpose()?;
-    let secret = if input.totp_secret.trim().is_empty() {
+    let (secret, totp_config) = if input.totp_secret.trim().is_empty() {
         if input.remove_totp {
-            None
+            (None, None)
         } else {
-            existing_index.and_then(|index| session.vault.entries[index].totp_secret.clone())
+            existing_index
+                .map(|index| {
+                    let entry = &session.vault.entries[index];
+                    (entry.totp_secret.clone(), entry.totp_config)
+                })
+                .unwrap_or((None, None))
         }
     } else {
-        Some(totp::normalize_secret(&input.totp_secret).map_err(|e| e.to_string())?)
+        let (secret, config) = totp::parse_secret(&input.totp_secret).map_err(|e| e.to_string())?;
+        (Some(secret), Some(config))
     };
     let credential = match input.kind {
-        vault::EntryKind::Password => input.password,
+        vault::EntryKind::Password | vault::EntryKind::WifiNetwork => input.password,
         vault::EntryKind::SshKey => input.ssh_private_key,
         vault::EntryKind::ApiToken => input.api_token,
     };
@@ -439,6 +484,7 @@ fn save_entry(
         url: input.url.trim().to_string(),
         notes: input.notes,
         totp_secret: secret,
+        totp_config,
         passkeys: existing_index
             .map(|index| updated.entries[index].passkeys.clone())
             .unwrap_or_default(),
@@ -749,6 +795,7 @@ pub fn run() {
             initialize,
             unlock,
             lock,
+            change_master_password,
             export_vault,
             import_vault,
             list_entries,

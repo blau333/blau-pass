@@ -123,7 +123,11 @@ fn main() -> Result<()> {
             } else {
                 ask("Пароль для записи: ")?.to_string()
             };
-            let totp_secret = totp.map(|t| totp::normalize_secret(&t)).transpose()?;
+            let (totp_secret, totp_config) = totp
+                .map(|value| totp::parse_secret(&value))
+                .transpose()?
+                .map(|(secret, config)| (Some(secret), Some(config)))
+                .unwrap_or((None, None));
             let notes = read_line("Заметки (Enter — пропустить): ")?;
             v.entries.push(Entry {
                 name: name.clone(),
@@ -132,6 +136,7 @@ fn main() -> Result<()> {
                 url: url.unwrap_or_default(),
                 notes,
                 totp_secret,
+                totp_config,
                 ..Entry::default()
             });
             vault::save(&path, &pw, &v)?;
@@ -153,6 +158,7 @@ fn main() -> Result<()> {
                     vault::EntryKind::Password => {}
                     vault::EntryKind::SshKey => tags.push_str(" [SSH-ключ]"),
                     vault::EntryKind::ApiToken => tags.push_str(" [API-токен]"),
+                    vault::EntryKind::WifiNetwork => tags.push_str(" [Wi-Fi]"),
                 }
                 if !e.passkeys.is_empty() {
                     tags.push_str(" [passkey]");
@@ -171,6 +177,7 @@ fn main() -> Result<()> {
                 vault::EntryKind::Password => println!("Пароль:    {}", e.password),
                 vault::EntryKind::SshKey => println!("SSH-ключ:  {}", e.password),
                 vault::EntryKind::ApiToken => println!("API-токен: {}", e.password),
+                vault::EntryKind::WifiNetwork => println!("Пароль Wi-Fi: {}", e.password),
             }
             println!("URL:       {}", e.url);
             println!("Заметки:   {}", e.notes);
@@ -184,7 +191,8 @@ fn main() -> Result<()> {
                 .totp_secret
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("У записи нет TOTP"))?;
-            let (code, left) = totp::current_code(secret)?;
+            let config = e.totp_config.unwrap_or_default();
+            let (code, left) = totp::current_code(secret, &config)?;
             println!("{code}  (ещё {left} с)");
         }
 

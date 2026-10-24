@@ -40,6 +40,8 @@ pub struct Entry {
     /// base32-секрет TOTP
     #[serde(default)]
     pub totp_secret: Option<String>,
+    #[serde(default)]
+    pub totp_config: Option<crate::totp::TotpConfig>,
     /// Задел на будущее: passkeys. Старые файлы без этого поля читаются нормально.
     #[serde(default)]
     pub passkeys: Vec<PasskeyRecord>,
@@ -52,6 +54,7 @@ pub enum EntryKind {
     Password,
     SshKey,
     ApiToken,
+    WifiNetwork,
 }
 
 /// Пока только хранилище. Чтобы сайты реально использовали такие ключи,
@@ -108,6 +111,33 @@ mod tests {
     }
 
     #[test]
+    fn legacy_totp_entries_use_standard_parameters() {
+        let vault: Vault =
+            serde_json::from_str(r#"{"entries":[{"name":"Legacy","totp_secret":"JBSWY3DP"}]}"#)
+                .unwrap();
+
+        assert!(vault.entries[0].totp_config.is_none());
+        assert_eq!(vault.entries[0].totp_config.unwrap_or_default().digits, 6);
+    }
+
+    #[test]
+    fn totp_parameters_survive_vault_serialization() {
+        let (secret, config) = crate::totp::parse_secret(
+            "otpauth://totp/Site?secret=JBSWY3DP&algorithm=SHA512&digits=8&period=60",
+        )
+        .unwrap();
+        let entry = Entry {
+            name: "Configured TOTP".into(),
+            totp_secret: Some(secret),
+            totp_config: Some(config),
+            ..Entry::default()
+        };
+        let restored: Entry = serde_json::from_value(serde_json::to_value(entry).unwrap()).unwrap();
+
+        assert_eq!(restored.totp_config, Some(config));
+    }
+
+    #[test]
     fn typed_credentials_remain_in_the_legacy_password_field() {
         let entry = Entry {
             name: "Deploy key".into(),
@@ -120,5 +150,22 @@ mod tests {
         assert_eq!(serialized["kind"], "ssh_key");
         assert_eq!(serialized["password"], "private-key-material");
         assert!(serialized.get("ssh_private_key").is_none());
+    }
+
+    #[test]
+    fn wifi_networks_round_trip_with_legacy_credential_storage() {
+        let entry = Entry {
+            name: "Home Wi-Fi".into(),
+            kind: EntryKind::WifiNetwork,
+            password: "network-secret".into(),
+            ..Entry::default()
+        };
+        let serialized = serde_json::to_value(&entry).unwrap();
+        let restored: Entry = serde_json::from_value(serialized.clone()).unwrap();
+
+        assert_eq!(serialized["kind"], "wifi_network");
+        assert_eq!(serialized["password"], "network-secret");
+        assert!(matches!(restored.kind, EntryKind::WifiNetwork));
+        assert_eq!(restored.password, "network-secret");
     }
 }

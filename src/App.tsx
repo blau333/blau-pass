@@ -5,7 +5,7 @@ import { check } from "@tauri-apps/plugin-updater";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import logo from "./assets/logo.png";
 
-type EntryKind = "password" | "ssh_key" | "api_token";
+type EntryKind = "password" | "ssh_key" | "api_token" | "wifi_network";
 type Category = "all" | EntryKind | "totp";
 type SharedEntry = {
   name: string;
@@ -18,6 +18,12 @@ type GoogleShareConfig = {
   accessToken: string;
   spreadsheetUrl: string;
   shareKey: string;
+};
+type Appearance = {
+  theme: "blau" | "midnight" | "forest" | "light";
+  accent: string;
+  density: "comfortable" | "compact";
+  fontSize: "small" | "standard" | "large";
 };
 
 type EntrySummary = {
@@ -63,6 +69,7 @@ type EntryDraft = {
 const categories: { id: Category; label: string }[] = [
   { id: "all", label: "Все данные" },
   { id: "password", label: "Пароли от сайтов" },
+  { id: "wifi_network", label: "Сети Wi-Fi" },
   { id: "ssh_key", label: "Ключи для серверов" },
   { id: "api_token", label: "Ключи доступа к API" },
   { id: "totp", label: "Коды подтверждения" },
@@ -81,7 +88,47 @@ const entryIcons = [
   { value: "🛒", label: "Покупки" },
   { value: "🖥️", label: "Компьютер" },
   { value: "📱", label: "Телефон" },
+  { value: "📶", label: "Wi-Fi" },
 ];
+
+const appearanceKey = "blau-appearance";
+const defaultAppearance: Appearance = {
+  theme: "blau",
+  accent: "#e96e36",
+  density: "comfortable",
+  fontSize: "standard",
+};
+const accentColors = [
+  { value: "#e96e36", label: "Терракотовый" },
+  { value: "#33a9c2", label: "Бирюзовый" },
+  { value: "#9b7bdb", label: "Фиолетовый" },
+  { value: "#55ad79", label: "Зелёный" },
+  { value: "#df668e", label: "Розовый" },
+];
+
+function loadAppearance(): Appearance {
+  try {
+    const saved = localStorage.getItem(appearanceKey);
+    if (!saved) return defaultAppearance;
+    const value: unknown = JSON.parse(saved);
+    if (!value || typeof value !== "object") return defaultAppearance;
+    const settings = value as Partial<Appearance>;
+    return {
+      theme: ["blau", "midnight", "forest", "light"].includes(settings.theme ?? "")
+        ? settings.theme as Appearance["theme"]
+        : defaultAppearance.theme,
+      accent: accentColors.some((accent) => accent.value === settings.accent)
+        ? settings.accent!
+        : defaultAppearance.accent,
+      density: settings.density === "compact" ? "compact" : "comfortable",
+      fontSize: ["small", "standard", "large"].includes(settings.fontSize ?? "")
+        ? settings.fontSize as Appearance["fontSize"]
+        : defaultAppearance.fontSize,
+    };
+  } catch {
+    return defaultAppearance;
+  }
+}
 
 const emptyDraft = (): EntryDraft => ({
   name: "",
@@ -100,16 +147,26 @@ const emptyDraft = (): EntryDraft => ({
 function categoryFor(kind: EntryKind): string {
   if (kind === "ssh_key") return "Закрытый ключ для сервера";
   if (kind === "api_token") return "Ключ доступа к API";
+  if (kind === "wifi_network") return "Сеть Wi-Fi";
   return "Пароль от сайта";
 }
 
 function defaultEntryIcon(kind: EntryKind): string {
   if (kind === "ssh_key") return "🔐";
   if (kind === "api_token") return "🔑";
+  if (kind === "wifi_network") return "📶";
   return "🌐";
 }
 
 function App() {
+  const [appearance, setAppearance] = useState<Appearance>(loadAppearance);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [currentMasterPassword, setCurrentMasterPassword] = useState("");
+  const [newMasterPassword, setNewMasterPassword] = useState("");
+  const [confirmMasterPassword, setConfirmMasterPassword] = useState("");
+  const [passwordChangeBusy, setPasswordChangeBusy] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
+  const [settingsNotice, setSettingsNotice] = useState("");
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const [unlocked, setUnlocked] = useState(false);
   const [entries, setEntries] = useState<EntrySummary[]>([]);
@@ -141,6 +198,56 @@ function App() {
   const [shareBusy, setShareBusy] = useState(false);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateStatus, setUpdateStatus] = useState("");
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = appearance.theme;
+    document.documentElement.dataset.density = appearance.density;
+    document.documentElement.dataset.fontSize = appearance.fontSize;
+    document.documentElement.style.setProperty("--accent", appearance.accent);
+    try {
+      localStorage.setItem(appearanceKey, JSON.stringify(appearance));
+    } catch (err) {
+      setSettingsError(`Не удалось сохранить настройки оформления: ${String(err)}`);
+    }
+  }, [appearance]);
+
+  function closeSettings() {
+    setSettingsOpen(false);
+    setCurrentMasterPassword("");
+    setNewMasterPassword("");
+    setConfirmMasterPassword("");
+    setSettingsError("");
+    setSettingsNotice("");
+  }
+
+  async function changeMasterPassword(event: React.FormEvent) {
+    event.preventDefault();
+    setSettingsError("");
+    setSettingsNotice("");
+    if (newMasterPassword !== confirmMasterPassword) {
+      setSettingsError("Новый мастер-пароль и подтверждение не совпадают.");
+      return;
+    }
+    if (newMasterPassword.length < 12) {
+      setSettingsError("Мастер-пароль должен быть не короче 12 символов.");
+      return;
+    }
+    setPasswordChangeBusy(true);
+    try {
+      await invoke("change_master_password", {
+        currentPassword: currentMasterPassword,
+        newPassword: newMasterPassword,
+      });
+      setCurrentMasterPassword("");
+      setNewMasterPassword("");
+      setConfirmMasterPassword("");
+      setSettingsNotice("Мастер-пароль изменён. Используйте его при следующей разблокировке.");
+    } catch (err) {
+      setSettingsError(String(err));
+    } finally {
+      setPasswordChangeBusy(false);
+    }
+  }
 
   async function checkForUpdates() {
     setUpdateBusy(true);
@@ -338,6 +445,7 @@ function App() {
     () => ({
       all: entries.length,
       password: entries.filter((entry) => entry.kind === "password").length,
+      wifi_network: entries.filter((entry) => entry.kind === "wifi_network").length,
       ssh_key: entries.filter((entry) => entry.kind === "ssh_key").length,
       api_token: entries.filter((entry) => entry.kind === "api_token").length,
       totp: entries.filter((entry) => entry.hasTotp).length,
@@ -584,6 +692,9 @@ function App() {
             ))}
           </nav>
           <button className="new-entry" onClick={startNewEntry}><span>+</span> Добавить</button>
+          <button className="settings-open" onClick={() => { setSettingsError(""); setSettingsNotice(""); setSettingsOpen(true); }}>
+            <span aria-hidden="true">⚙</span><span>Настройки</span>
+          </button>
           <div className="backup-actions">
             <span>Резервная копия</span>
             <button onClick={() => void exportVault()}>Экспорт в файл</button>
@@ -658,7 +769,7 @@ function App() {
                 <div><h1>{originalName ? "Изменить запись" : "Новая запись"}</h1><p>Поля шифруются перед сохранением</p></div>
               </div>
               <div className="edit-fields">
-                <label>Название сайта или сервиса<input autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Например, Почта или GitHub" required /></label>
+                <label>{draft.kind === "wifi_network" ? "Название сети (SSID)" : "Название сайта или сервиса"}<input autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={draft.kind === "wifi_network" ? "Например, Домашняя сеть" : "Например, Почта или GitHub"} required /></label>
                 <fieldset className="icon-picker">
                   <legend>Значок для записи</legend>
                   <div className="icon-options">
@@ -685,13 +796,14 @@ function App() {
                 </fieldset>
                 <label>Что сохраняем?
                   <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as EntryKind })}>
-                    <option value="password">Пароль от сайта</option><option value="ssh_key">Закрытый ключ для сервера (SSH)</option><option value="api_token">Ключ доступа к API</option>
+                    <option value="password">Пароль от сайта</option><option value="wifi_network">Пароль от сети Wi-Fi</option><option value="ssh_key">Закрытый ключ для сервера (SSH)</option><option value="api_token">Ключ доступа к API</option>
                   </select>
                 </label>
                 {draft.kind === "password" && <>
                   <label>Имя пользователя или логин<input autoComplete="username" value={draft.username} onChange={(e) => setDraft({ ...draft, username: e.target.value })} placeholder="Имя для входа на сайт" /></label>
                   <label>Пароль для входа<input type="password" autoComplete="new-password" value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></label>
                 </>}
+                {draft.kind === "wifi_network" && <label>Пароль сети Wi-Fi<input type="password" autoComplete="new-password" value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} required /></label>}
                 {draft.kind === "api_token" && <label>Секретный ключ API<textarea rows={4} autoComplete="off" value={draft.apiToken} onChange={(e) => setDraft({ ...draft, apiToken: e.target.value })} placeholder="Ключ, который выдал сервис" required /></label>}
                 {draft.kind === "ssh_key" && <label>Закрытый SSH-ключ для входа на сервер<textarea rows={7} spellCheck={false} autoComplete="off" value={draft.sshPrivateKey} onChange={(e) => setDraft({ ...draft, sshPrivateKey: e.target.value })} placeholder="Вставьте закрытую часть ключа" required /></label>}
                 <label>Адрес сайта или сервиса<input type="url" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} placeholder="https://example.com" /></label>
@@ -699,7 +811,7 @@ function App() {
                 {draft.kind === "password" && (
                   <>
                     <label>Секрет для кодов двухфакторной защиты (2FA)
-                      <small>Вставьте секретный ключ или ссылку настройки вида otpauth:// из приложения-аутентификатора.</small>
+                      <small>Вставьте секретный ключ или ссылку otpauth:// из приложения-аутентификатора. Алгоритм, число цифр и интервал из ссылки будут учтены.</small>
                       <input autoComplete="off" value={draft.totpSecret} onChange={(e) => setDraft({ ...draft, totpSecret: e.target.value, removeTotp: false })} placeholder={originalHasTotp ? "Оставьте пустым, чтобы не менять" : "Необязательно"} />
                     </label>
                     {originalHasTotp && <label className="checkbox-label"><input type="checkbox" checked={draft.removeTotp} onChange={(e) => setDraft({ ...draft, removeTotp: e.target.checked, totpSecret: "" })} /> Удалить секрет для кодов подтверждения</label>}
@@ -720,16 +832,16 @@ function App() {
                     <button
                       className="primary copy-primary"
                       onClick={() => void copyValue(details.password || details.apiToken || details.sshPrivateKey, "credential")}
-                    >{copied === "credential" ? "Скопировано" : details.kind === "ssh_key" ? "Копировать ключ" : details.kind === "api_token" ? "Копировать токен" : "Копировать пароль"}</button>
+                    >{copied === "credential" ? "Скопировано" : details.kind === "ssh_key" ? "Копировать ключ" : details.kind === "api_token" ? "Копировать токен" : details.kind === "wifi_network" ? "Копировать пароль Wi-Fi" : "Копировать пароль"}</button>
                   )}
                   <button className="delete-entry" onClick={() => void removeEntry()} title="Удалить запись" aria-label="Удалить запись">×</button>
                 </div>
               </div>
               <div className="detail-card">
-                {details.kind === "password" && <>
-                  {details.username && <DetailField label="Имя пользователя или логин" value={details.username} onError={setError} />}
+                {(details.kind === "password" || details.kind === "wifi_network") && <>
+                  {details.kind === "password" && details.username && <DetailField label="Имя пользователя или логин" value={details.username} onError={setError} />}
                   <div className="detail-field">
-                    <span className="field-label">Пароль для входа на сайт</span>
+                    <span className="field-label">{details.kind === "wifi_network" ? "Пароль сети Wi-Fi" : "Пароль для входа на сайт"}</span>
                     <div className="password-line">
                       <div className="masked-value">
                         {details.password ? showPassword ? details.password : "•".repeat(Math.min(details.password.length, 24)) : <span className="field-empty">Пароль не задан</span>}
@@ -743,14 +855,14 @@ function App() {
                 {details.kind === "api_token" && <DetailField label="Секретный ключ API" value={details.apiToken} secret onError={setError} />}
                 {details.kind === "ssh_key" && <DetailField label="Закрытый ключ для входа на сервер" value={details.sshPrivateKey} secret multiline onError={setError} />}
                         {details.code && <div className="detail-field totp-field">
-                  <div><span className="field-label">Код двухфакторной защиты</span><span className="totp-code" key={details.code}>{details.code.slice(0, 3)} {details.code.slice(3)}</span></div>
+                  <div><span className="field-label">Код двухфакторной защиты</span><span className="totp-code" key={details.code}>{details.code.slice(0, details.code.length / 2)} {details.code.slice(details.code.length / 2)}</span></div>
                   <span className="totp-time">обновится через {details.secondsRemaining} с</span>
                   <div className="detail-progress"><i style={{ width: `${((details.secondsRemaining ?? 0) / 30) * 100}%` }} /></div>
                   <button className="totp-copy" onClick={() => void copyValue(details.code!, "totp")}>{copied === "totp" ? "Скопировано" : "Копировать код"}</button>
                 </div>}
                 {details.url && <DetailField label="Адрес сайта или сервиса" value={details.url} onError={setError} />}
                 {details.notes && <DetailField label="Заметка для себя" value={details.notes} multiline onError={setError} />}
-                {details.kind === "password" && !details.username && !details.password && !details.code && !details.url && !details.notes && <div className="detail-field"><span className="field-empty">В этой записи пока нет дополнительных данных.</span></div>}
+                {(details.kind === "password" || details.kind === "wifi_network") && !details.username && !details.password && !details.code && !details.url && !details.notes && <div className="detail-field"><span className="field-empty">В этой записи пока нет дополнительных данных.</span></div>}
               </div>
               {error && <p className="error">{error}</p>}
               <footer className="security-note">Шифрование: XChaCha20-Poly1305 · KDF: Argon2id · данные только на этом устройстве</footer>
@@ -859,6 +971,67 @@ function App() {
             <div className="dialog-actions">
               <button type="button" className="secondary" onClick={closeShareDialog}>Закрыть и очистить</button>
             </div>
+          </section>
+        </div>
+      )}
+      {settingsOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="import-dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+            <span className="dialog-kicker">ПЕРСОНАЛИЗАЦИЯ И БЕЗОПАСНОСТЬ</span>
+            <h2 id="settings-title">Настройки приложения</h2>
+            <div className="settings-options">
+              <label>Тема оформления
+                <select value={appearance.theme} onChange={(event) => setAppearance({ ...appearance, theme: event.target.value as Appearance["theme"] })}>
+                  <option value="blau">Blau — тёмная</option>
+                  <option value="midnight">Полночь — синяя</option>
+                  <option value="forest">Лес — зелёная</option>
+                  <option value="light">Светлая</option>
+                </select>
+              </label>
+              <fieldset className="accent-picker">
+                <legend>Акцентный цвет</legend>
+                <div className="accent-options">
+                  {accentColors.map((accent) => (
+                    <button
+                      key={accent.value}
+                      type="button"
+                      className={`accent-option ${appearance.accent === accent.value ? "selected" : ""}`}
+                      style={{ "--swatch": accent.value } as React.CSSProperties}
+                      aria-label={accent.label}
+                      aria-pressed={appearance.accent === accent.value}
+                      title={accent.label}
+                      onClick={() => setAppearance({ ...appearance, accent: accent.value })}
+                    />
+                  ))}
+                </div>
+              </fieldset>
+              <label>Плотность списка
+                <select value={appearance.density} onChange={(event) => setAppearance({ ...appearance, density: event.target.value as Appearance["density"] })}>
+                  <option value="comfortable">Свободная</option>
+                  <option value="compact">Компактная</option>
+                </select>
+              </label>
+              <label>Размер текста
+                <select value={appearance.fontSize} onChange={(event) => setAppearance({ ...appearance, fontSize: event.target.value as Appearance["fontSize"] })}>
+                  <option value="small">Маленький</option>
+                  <option value="standard">Обычный</option>
+                  <option value="large">Крупный</option>
+                </select>
+              </label>
+            </div>
+            <form className="password-change" onSubmit={changeMasterPassword}>
+              <h3>Изменить мастер-пароль</h3>
+              <p className="dialog-copy">Все записи будут заново зашифрованы. Для резервных копий, сделанных ранее, останется нужен прежний пароль.</p>
+              <label>Текущий мастер-пароль<input type="password" autoComplete="current-password" value={currentMasterPassword} onChange={(event) => setCurrentMasterPassword(event.target.value)} required /></label>
+              <label>Новый мастер-пароль<input type="password" autoComplete="new-password" minLength={12} value={newMasterPassword} onChange={(event) => setNewMasterPassword(event.target.value)} required /></label>
+              <label>Повторите новый мастер-пароль<input type="password" autoComplete="new-password" minLength={12} value={confirmMasterPassword} onChange={(event) => setConfirmMasterPassword(event.target.value)} required /></label>
+              {settingsError && <p className="error" role="alert">{settingsError}</p>}
+              {settingsNotice && <p className="settings-notice" role="status">{settingsNotice}</p>}
+              <div className="dialog-actions">
+                <button type="button" className="secondary" onClick={closeSettings} disabled={passwordChangeBusy}>Закрыть</button>
+                <button className="primary" disabled={passwordChangeBusy}>{passwordChangeBusy ? "Изменение…" : "Изменить пароль"}</button>
+              </div>
+            </form>
           </section>
         </div>
       )}

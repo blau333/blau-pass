@@ -10,8 +10,9 @@ If there are no releases listed, an installer has not been published yet.
 
 1. Download and run the installer.
 2. The first time you launch blau, create a master password that is at least 12 characters long.
-3. Click **Добавить** (Add) to create an entry. You can save a website password, an SSH private key, or an API token. Password entries can also include a secret for generating two-factor authentication (2FA) codes.
+3. Click **Добавить** (Add) to create an entry. You can save a website password, a Wi-Fi network password (using the network name/SSID), an SSH private key, or an API token. Website password entries can also include a base32 secret or an `otpauth://` link for generating two-factor authentication (2FA) codes.
 4. Find entries using search or the categories in the sidebar.
+5. Open **Настройки** to choose a theme, accent color, list density, and text size, or change the master password. Appearance settings are stored on this device. Changing the master password re-encrypts the current vault; older backups still require their original password.
 
 When you open blau again, enter your master password to unlock the vault. Click **Заблокировать** (Lock) when you are finished.
 
