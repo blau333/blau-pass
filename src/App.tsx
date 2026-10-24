@@ -4,6 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import logo from "./assets/logo.png";
+import { languages, loadLanguage, translate, type Language } from "./i18n";
 
 type EntryKind = "password" | "ssh_key" | "api_token" | "wifi_network";
 type Category = "all" | EntryKind | "totp";
@@ -144,11 +145,11 @@ const emptyDraft = (): EntryDraft => ({
   sshPrivateKey: "",
 });
 
-function categoryFor(kind: EntryKind): string {
-  if (kind === "ssh_key") return "Закрытый ключ для сервера";
-  if (kind === "api_token") return "Ключ доступа к API";
-  if (kind === "wifi_network") return "Сеть Wi-Fi";
-  return "Пароль от сайта";
+function categoryFor(kind: EntryKind, language: Language): string {
+  if (kind === "ssh_key") return translate(language, "Закрытый ключ для сервера");
+  if (kind === "api_token") return translate(language, "Ключ доступа к API");
+  if (kind === "wifi_network") return translate(language, "Сеть Wi-Fi");
+  return translate(language, "Пароль от сайта");
 }
 
 function defaultEntryIcon(kind: EntryKind): string {
@@ -158,8 +159,13 @@ function defaultEntryIcon(kind: EntryKind): string {
   return "🌐";
 }
 
+function isLanguage(value: string): value is Language {
+  return languages.some((language) => language.code === value);
+}
+
 function App() {
   const [appearance, setAppearance] = useState<Appearance>(loadAppearance);
+  const [language, setLanguage] = useState<Language>(loadLanguage);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [currentMasterPassword, setCurrentMasterPassword] = useState("");
   const [newMasterPassword, setNewMasterPassword] = useState("");
@@ -198,6 +204,7 @@ function App() {
   const [shareBusy, setShareBusy] = useState(false);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateStatus, setUpdateStatus] = useState("");
+  const t = (source: string) => translate(language, source);
 
   useEffect(() => {
     document.documentElement.dataset.theme = appearance.theme;
@@ -207,9 +214,35 @@ function App() {
     try {
       localStorage.setItem(appearanceKey, JSON.stringify(appearance));
     } catch (err) {
-      setSettingsError(`Не удалось сохранить настройки оформления: ${String(err)}`);
+      setSettingsError(`${t("Не удалось сохранить настройки оформления: ")}${String(err)}`);
     }
   }, [appearance]);
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+    document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
+    try {
+      localStorage.setItem("blau-language", language);
+    } catch (err) {
+      setSettingsError(`${t("Не удалось сохранить настройки оформления: ")}${String(err)}`);
+    }
+  }, [language]);
+
+  function renderLanguageSelect(className?: string) {
+    return (
+      <label className={className}>
+        {t("Язык")}
+        <select
+          value={language}
+          onChange={(event) => {
+            if (isLanguage(event.target.value)) setLanguage(event.target.value);
+          }}
+        >
+          {languages.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
+        </select>
+      </label>
+    );
+  }
 
   function closeSettings() {
     setSettingsOpen(false);
@@ -225,11 +258,11 @@ function App() {
     setSettingsError("");
     setSettingsNotice("");
     if (newMasterPassword !== confirmMasterPassword) {
-      setSettingsError("Новый мастер-пароль и подтверждение не совпадают.");
+      setSettingsError(t("Новый мастер-пароль и подтверждение не совпадают."));
       return;
     }
     if (newMasterPassword.length < 12) {
-      setSettingsError("Мастер-пароль должен быть не короче 12 символов.");
+      setSettingsError(t("Мастер-пароль должен быть не короче 12 символов."));
       return;
     }
     setPasswordChangeBusy(true);
@@ -241,7 +274,7 @@ function App() {
       setCurrentMasterPassword("");
       setNewMasterPassword("");
       setConfirmMasterPassword("");
-      setSettingsNotice("Мастер-пароль изменён. Используйте его при следующей разблокировке.");
+      setSettingsNotice(t("Мастер-пароль изменён. Используйте его при следующей разблокировке."));
     } catch (err) {
       setSettingsError(String(err));
     } finally {
@@ -255,19 +288,19 @@ function App() {
     try {
       const update = await check();
       if (!update) {
-        setUpdateStatus("Установлена последняя версия.");
+        setUpdateStatus(t("Установлена последняя версия."));
         return;
       }
-      if (!window.confirm(`Доступна версия ${update.version}. Скачать и установить её?`)) {
-        setUpdateStatus(`Доступно обновление до версии ${update.version}.`);
+      if (!window.confirm(`${t("Доступно обновление до версии ")}${update.version}. ${t("Скачать и установить её?")}`)) {
+        setUpdateStatus(`${t("Доступно обновление до версии ")}${update.version}.`);
         return;
       }
-      setUpdateStatus("Скачивание и установка обновления…");
+      setUpdateStatus(t("Скачивание и установка обновления…"));
       await update.downloadAndInstall();
-      setUpdateStatus("Обновление установлено. Перезапуск приложения…");
+      setUpdateStatus(t("Обновление установлено. Перезапуск приложения…"));
       await relaunch();
     } catch (err) {
-      setUpdateStatus(`Не удалось обновить приложение: ${String(err)}`);
+      setUpdateStatus(`${t("Не удалось обновить приложение: ")}${String(err)}`);
     } finally {
       setUpdateBusy(false);
     }
@@ -325,7 +358,7 @@ function App() {
     try {
       await saveGoogleShareConfig();
       const count = await invoke<number>("sync_google_sheet", { names: shareSelection });
-      setShareNotice(`Таблица обновлена. Общих записей: ${count}.`);
+      setShareNotice(`${t("Таблица обновлена. Общих записей: ")}${count}.`);
     } catch (err) {
       setShareError(String(err));
     } finally {
@@ -341,7 +374,7 @@ function App() {
       await saveGoogleShareConfig();
       const packageValue = await invoke<string>("google_sheet_exchange", { action: "read" });
       if (!packageValue) {
-        throw new Error("В таблице пока нет пакета. Сначала опубликуйте записи.");
+        throw new Error(t("В таблице пока нет пакета. Сначала опубликуйте записи."));
       }
       const result = await invoke<SharedEntry[]>("decrypt_share_package", {
         package: packageValue,
@@ -367,10 +400,10 @@ function App() {
   async function copyShareValue(value: string) {
     try {
       await navigator.clipboard.writeText(value);
-      setShareNotice("Ключ скопирован. Передайте его участникам отдельно от таблицы.");
+      setShareNotice(t("Ключ скопирован. Передайте его участникам отдельно от таблицы."));
       window.setTimeout(() => setShareNotice(""), 3500);
     } catch (err) {
-      setShareError(`Не удалось скопировать: ${String(err)}`);
+      setShareError(`${t("Не удалось скопировать: ")}${String(err)}`);
     }
   }
 
@@ -493,13 +526,13 @@ function App() {
     setNotice("");
     try {
       const destination = await save({
-        title: "Экспорт зашифрованной копии",
+        title: t("Экспорт зашифрованной копии"),
         defaultPath: "blau-backup.rsv",
-        filters: [{ name: "Зашифрованное хранилище Blau", extensions: ["rsv"] }],
+        filters: [{ name: t("Зашифрованное хранилище Blau"), extensions: ["rsv"] }],
       });
       if (!destination) return;
       await invoke("export_vault", { destination });
-      setNotice("Зашифрованная копия сохранена.");
+      setNotice(t("Зашифрованная копия сохранена."));
     } catch (err) {
       setError(String(err));
     }
@@ -510,10 +543,10 @@ function App() {
     setNotice("");
     try {
       const selected = await open({
-        title: "Выберите копию хранилища Blau",
+        title: t("Выберите копию хранилища Blau"),
         multiple: false,
         directory: false,
-        filters: [{ name: "Зашифрованное хранилище Blau", extensions: ["rsv"] }],
+        filters: [{ name: t("Зашифрованное хранилище Blau"), extensions: ["rsv"] }],
       });
       if (typeof selected !== "string") return;
       setImportPath(selected);
@@ -536,7 +569,7 @@ function App() {
       setImportPassword("");
       setConfirmImport(false);
       setEditing(false);
-      setNotice("Хранилище импортировано. Текущие записи заменены; мастер-пароль Blau сохранён.");
+      setNotice(t("Хранилище импортировано. Текущие записи заменены; мастер-пароль Blau сохранён."));
       await refresh();
     } catch (err) {
       setError(String(err));
@@ -597,7 +630,7 @@ function App() {
   }
 
   async function removeEntry() {
-    if (!details || !window.confirm(`Удалить запись «${details.name}»?`)) return;
+    if (!details || !window.confirm(`${t("Удалить запись «")}${details.name}${t("»?")}`)) return;
     setError("");
     try {
       await invoke("remove_entry", { name: details.name });
@@ -614,7 +647,7 @@ function App() {
       setCopied(label);
       window.setTimeout(() => setCopied(""), 1400);
     } catch (err) {
-      setError(`Не удалось скопировать: ${String(err)}`);
+      setError(`${t("Не удалось скопировать: ")}${String(err)}`);
     }
   }
 
@@ -625,7 +658,7 @@ function App() {
   if (hasVault === null) {
     return error
       ? <main className="center"><p className="error">{error}</p></main>
-      : <main className="center"><span className="spinner" />Загрузка…</main>;
+      : <main className="center"><span className="spinner" />{t("Загрузка…")}</main>;
   }
 
   if (!unlocked) {
@@ -633,16 +666,17 @@ function App() {
       <main className="auth-screen">
         <section className="auth-panel">
           <div className="auth-brand">
-            <img className="brand-mark" src={logo} alt="Логотип blau" />
+            <img className="brand-mark" src={logo} alt="blau" />
             <h1>blau</h1>
           </div>
+          {renderLanguageSelect("language-select auth-language")}
           <p className="auth-copy">
             {hasVault
-              ? "Введите мастер-пароль, чтобы расшифровать хранилище."
-              : "Создайте мастер-пароль для нового зашифрованного хранилища."}
+              ? t("Введите мастер-пароль, чтобы расшифровать хранилище.")
+              : t("Создайте мастер-пароль для нового зашифрованного хранилища.")}
           </p>
           <form onSubmit={submitPassword} className="auth-form">
-            <label htmlFor="master-password">Главный пароль для разблокировки хранилища</label>
+            <label htmlFor="master-password">{t("Главный пароль для разблокировки хранилища")}</label>
             <input
               id="master-password"
               type="password"
@@ -654,21 +688,21 @@ function App() {
               required
             />
             <button className="primary auth-submit" disabled={busy}>
-              {busy ? "Подождите…" : hasVault ? "Разблокировать" : "Создать хранилище"}
+              {busy ? t("Подождите…") : hasVault ? t("Разблокировать") : t("Создать хранилище")}
             </button>
           </form>
           {error && <p className="error">{error}</p>}
           <button className="secondary auth-update" onClick={() => void checkForUpdates()} disabled={updateBusy}>
-            {updateBusy ? "Проверка обновлений…" : "Проверить обновления"}
+            {updateBusy ? t("Проверка обновлений…") : t("Проверить обновления")}
           </button>
           {updateStatus && (
-            <p className={`update-status${updateStatus.startsWith("Не удалось") ? " error" : ""}`}
-              role={updateStatus.startsWith("Не удалось") ? "alert" : "status"}>
+            <p className={`update-status${updateStatus.startsWith(t("Не удалось обновить приложение: ")) ? " error" : ""}`}
+              role={updateStatus.startsWith(t("Не удалось обновить приложение: ")) ? "alert" : "status"}>
               {updateStatus}
             </p>
           )}
           <p className="auth-footnote">
-            Хранилище — один зашифрованный файл на этом устройстве. Мастер-пароль нигде не сохраняется.
+            {t("Хранилище — один зашифрованный файл на этом устройстве. Мастер-пароль нигде не сохраняется.")}
           </p>
         </section>
       </main>
@@ -680,55 +714,56 @@ function App() {
       <div className="workspace">
         <aside className="sidebar">
           <div className="sidebar-brand"><img className="brand-mark sidebar-mark" src={logo} alt="" /><strong>blau</strong></div>
-          <nav aria-label="Категории">
+          <nav aria-label={t("Категории")}>
             {categories.map((item) => (
               <button
                 key={item.id}
                 className={`nav-item ${category === item.id ? "active" : ""}`}
                 onClick={() => setCategory(item.id)}
               >
-                <span>{item.label}</span><span className="nav-count">{counts[item.id]}</span>
+                <span>{t(item.label)}</span><span className="nav-count">{counts[item.id]}</span>
               </button>
             ))}
           </nav>
-          <button className="new-entry" onClick={startNewEntry}><span>+</span> Добавить</button>
+          <button className="new-entry" onClick={startNewEntry}><span>+</span> {t("Добавить")}</button>
           <button className="settings-open" onClick={() => { setSettingsError(""); setSettingsNotice(""); setSettingsOpen(true); }}>
-            <span aria-hidden="true">⚙</span><span>Настройки</span>
+            <span aria-hidden="true">⚙</span><span>{t("Настройки")}</span>
           </button>
           <div className="backup-actions">
-            <span>Резервная копия</span>
-            <button onClick={() => void exportVault()}>Экспорт в файл</button>
-            <button onClick={() => void chooseImportFile()}>Импорт из файла</button>
+            <span>{t("Резервная копия")}</span>
+            <button onClick={() => void exportVault()}>{t("Экспорт в файл")}</button>
+            <button onClick={() => void chooseImportFile()}>{t("Импорт из файла")}</button>
           </div>
           <div className="share-actions">
-            <span>Совместный доступ</span>
-            <button onClick={() => void openShareDialog()}>Google Таблица</button>
+            <span>{t("Совместный доступ")}</span>
+            <button onClick={() => void openShareDialog()}>{t("Google Таблица")}</button>
           </div>
+          {renderLanguageSelect("language-select sidebar-language")}
           <div className="sidebar-status">
-            <span className="status-dot" /> Хранилище разблокировано
+            <span className="status-dot" /> {t("Хранилище разблокировано")}
             <button onClick={() => void checkForUpdates()} disabled={updateBusy}>
-              {updateBusy ? "Обновление…" : "Проверить обновления"}
+              {updateBusy ? t("Обновление…") : t("Проверить обновления")}
             </button>
             {updateStatus && (
-              <span className={`update-status${updateStatus.startsWith("Не удалось") ? " error" : ""}`}
-                role={updateStatus.startsWith("Не удалось") ? "alert" : "status"}>
+              <span className={`update-status${updateStatus.startsWith(t("Не удалось обновить приложение: ")) ? " error" : ""}`}
+                role={updateStatus.startsWith(t("Не удалось обновить приложение: ")) ? "alert" : "status"}>
                 {updateStatus}
               </span>
             )}
-            <button onClick={() => void lockVault()}>Заблокировать</button>
+            <button onClick={() => void lockVault()}>{t("Заблокировать")}</button>
           </div>
         </aside>
 
-        <section className="entry-column" aria-label="Список записей">
+        <section className="entry-column" aria-label={t("Список записей")}>
           <div className="search-wrap">
             <input
-              aria-label="Поиск по записям"
-              placeholder="Поиск по записям"
+              aria-label={t("Поиск по записям")}
+              placeholder={t("Поиск по записям")}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          <div className="list-heading">{categories.find((item) => item.id === category)?.label}<span>{filteredEntries.length}</span></div>
+          <div className="list-heading">{t(categories.find((item) => item.id === category)?.label ?? "")}<span>{filteredEntries.length}</span></div>
           <div className="entry-list">
             {filteredEntries.map((entry) => (
               <button
@@ -745,40 +780,40 @@ function App() {
                 </span>
                 <span className="entry-copy">
                   <strong>{entry.name}</strong>
-                  <small>{entry.kind === "password" ? entry.username || (entry.hasTotp ? "Код 2FA" : "Пароль от сайта") : categoryFor(entry.kind)}{entry.hasTotp ? " · 2FA" : ""}</small>
+                  <small>{entry.kind === "password" ? entry.username || (entry.hasTotp ? t("Код 2FA") : categoryFor(entry.kind, language)) : categoryFor(entry.kind, language)}{entry.hasTotp ? " · 2FA" : ""}</small>
                 </span>
               </button>
             ))}
             {filteredEntries.length === 0 && (
               <div className="list-empty">
                 <span>{search ? "⌕" : "+"}</span>
-                <p>{search ? "Ничего не найдено" : "В этой категории пока нет записей"}</p>
-                {!search && <button onClick={startNewEntry}>Добавить запись</button>}
+                <p>{search ? t("Ничего не найдено") : t("В этой категории пока нет записей")}</p>
+                {!search && <button onClick={startNewEntry}>{t("Добавить запись")}</button>}
               </div>
             )}
           </div>
         </section>
 
-        <section className="detail-column" aria-label="Сведения о записи">
+        <section className="detail-column" aria-label={t("Сведения о записи")}>
           {notice && <p className="operation-notice" role="status">{notice}</p>}
           {error && !editing && !importPath && <p className="error operation-error" role="alert">{error}</p>}
           {editing ? (
             <form className="edit-view" onSubmit={submitEntry}>
               <div className="detail-heading edit-heading">
                 <span className="detail-avatar">+</span>
-                <div><h1>{originalName ? "Изменить запись" : "Новая запись"}</h1><p>Поля шифруются перед сохранением</p></div>
+                <div><h1>{originalName ? t("Изменить запись") : t("Новая запись")}</h1><p>{t("Поля шифруются перед сохранением")}</p></div>
               </div>
               <div className="edit-fields">
-                <label>{draft.kind === "wifi_network" ? "Название сети (SSID)" : "Название сайта или сервиса"}<input autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={draft.kind === "wifi_network" ? "Например, Домашняя сеть" : "Например, Почта или GitHub"} required /></label>
+                <label>{t(draft.kind === "wifi_network" ? "Название сети (SSID)" : "Название сайта или сервиса")}<input autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={t(draft.kind === "wifi_network" ? "Например, Домашняя сеть" : "Например, Почта или GitHub")} required /></label>
                 <fieldset className="icon-picker">
-                  <legend>Значок для записи</legend>
+                  <legend>{t("Значок для записи")}</legend>
                   <div className="icon-options">
                     <button
                       type="button"
                       className={`icon-option icon-auto ${draft.icon === "" ? "selected" : ""}`}
-                      aria-label="Значок по умолчанию"
+                      aria-label={t("Значок по умолчанию")}
                       aria-pressed={draft.icon === ""}
-                      title="Значок по умолчанию"
+                      title={t("Значок по умолчанию")}
                       onClick={() => setDraft({ ...draft, icon: "" })}
                     >{defaultEntryIcon(draft.kind)}</button>
                     {entryIcons.map((icon) => (
@@ -786,93 +821,93 @@ function App() {
                         key={icon.value}
                         type="button"
                         className={`icon-option ${draft.icon === icon.value ? "selected" : ""}`}
-                        aria-label={icon.label}
+                        aria-label={t(icon.label)}
                         aria-pressed={draft.icon === icon.value}
-                        title={icon.label}
+                        title={t(icon.label)}
                         onClick={() => setDraft({ ...draft, icon: icon.value })}
                       >{icon.value}</button>
                     ))}
                   </div>
                 </fieldset>
-                <label>Что сохраняем?
+                <label>{t("Что сохраняем?")}
                   <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as EntryKind })}>
-                    <option value="password">Пароль от сайта</option><option value="wifi_network">Пароль от сети Wi-Fi</option><option value="ssh_key">Закрытый ключ для сервера (SSH)</option><option value="api_token">Ключ доступа к API</option>
+                    <option value="password">{t("Пароль от сайта")}</option><option value="wifi_network">{t("Пароль от сети Wi-Fi")}</option><option value="ssh_key">{t("Закрытый ключ для сервера (SSH)")}</option><option value="api_token">{t("Ключ доступа к API")}</option>
                   </select>
                 </label>
                 {draft.kind === "password" && <>
-                  <label>Имя пользователя или логин<input autoComplete="username" value={draft.username} onChange={(e) => setDraft({ ...draft, username: e.target.value })} placeholder="Имя для входа на сайт" /></label>
-                  <label>Пароль для входа<input type="password" autoComplete="new-password" value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></label>
+                  <label>{t("Имя пользователя или логин")}<input autoComplete="username" value={draft.username} onChange={(e) => setDraft({ ...draft, username: e.target.value })} placeholder={t("Имя для входа на сайт")} /></label>
+                  <label>{t("Пароль для входа")}<input type="password" autoComplete="new-password" value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></label>
                 </>}
-                {draft.kind === "wifi_network" && <label>Пароль сети Wi-Fi<input type="password" autoComplete="new-password" value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} required /></label>}
-                {draft.kind === "api_token" && <label>Секретный ключ API<textarea rows={4} autoComplete="off" value={draft.apiToken} onChange={(e) => setDraft({ ...draft, apiToken: e.target.value })} placeholder="Ключ, который выдал сервис" required /></label>}
-                {draft.kind === "ssh_key" && <label>Закрытый SSH-ключ для входа на сервер<textarea rows={7} spellCheck={false} autoComplete="off" value={draft.sshPrivateKey} onChange={(e) => setDraft({ ...draft, sshPrivateKey: e.target.value })} placeholder="Вставьте закрытую часть ключа" required /></label>}
-                <label>Адрес сайта или сервиса<input type="url" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} placeholder="https://example.com" /></label>
-                <label>Заметка для себя (необязательно)<textarea rows={3} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="Например, для чего используется эта запись" /></label>
+                {draft.kind === "wifi_network" && <label>{t("Пароль сети Wi-Fi")}<input type="password" autoComplete="new-password" value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} required /></label>}
+                {draft.kind === "api_token" && <label>{t("Секретный ключ API")}<textarea rows={4} autoComplete="off" value={draft.apiToken} onChange={(e) => setDraft({ ...draft, apiToken: e.target.value })} placeholder={t("Ключ, который выдал сервис")} required /></label>}
+                {draft.kind === "ssh_key" && <label>{t("Закрытый SSH-ключ для входа на сервер")}<textarea rows={7} spellCheck={false} autoComplete="off" value={draft.sshPrivateKey} onChange={(e) => setDraft({ ...draft, sshPrivateKey: e.target.value })} placeholder={t("Вставьте закрытую часть ключа")} required /></label>}
+                <label>{t("Адрес сайта или сервиса")}<input type="url" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} placeholder="https://example.com" /></label>
+                <label>{t("Заметка для себя (необязательно)")}<textarea rows={3} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder={t("Например, для чего используется эта запись")} /></label>
                 {draft.kind === "password" && (
                   <>
-                    <label>Секрет для кодов двухфакторной защиты (2FA)
-                      <small>Вставьте секретный ключ или ссылку otpauth:// из приложения-аутентификатора. Алгоритм, число цифр и интервал из ссылки будут учтены.</small>
-                      <input autoComplete="off" value={draft.totpSecret} onChange={(e) => setDraft({ ...draft, totpSecret: e.target.value, removeTotp: false })} placeholder={originalHasTotp ? "Оставьте пустым, чтобы не менять" : "Необязательно"} />
+                    <label>{t("Секрет для кодов двухфакторной защиты (2FA)")}
+                      <small>{t("Вставьте секретный ключ или ссылку otpauth:// из приложения-аутентификатора. Алгоритм, число цифр и интервал из ссылки будут учтены.")}</small>
+                      <input autoComplete="off" value={draft.totpSecret} onChange={(e) => setDraft({ ...draft, totpSecret: e.target.value, removeTotp: false })} placeholder={originalHasTotp ? t("Оставьте пустым, чтобы не менять") : t("Необязательно")} />
                     </label>
-                    {originalHasTotp && <label className="checkbox-label"><input type="checkbox" checked={draft.removeTotp} onChange={(e) => setDraft({ ...draft, removeTotp: e.target.checked, totpSecret: "" })} /> Удалить секрет для кодов подтверждения</label>}
+                    {originalHasTotp && <label className="checkbox-label"><input type="checkbox" checked={draft.removeTotp} onChange={(e) => setDraft({ ...draft, removeTotp: e.target.checked, totpSecret: "" })} /> {t("Удалить секрет для кодов подтверждения")}</label>}
                   </>
                 )}
               </div>
               {error && <p className="error">{error}</p>}
-              <div className="edit-actions"><button type="button" className="secondary" onClick={() => { setEditing(false); setError(""); }}>Отмена</button><button className="primary" disabled={busy}>{busy ? "Сохранение…" : "Сохранить"}</button></div>
+              <div className="edit-actions"><button type="button" className="secondary" onClick={() => { setEditing(false); setError(""); }}>{t("Отмена")}</button><button className="primary" disabled={busy}>{busy ? t("Сохранение…") : t("Сохранить")}</button></div>
             </form>
           ) : details ? (
             <>
               <div className="detail-heading">
                 <span className="detail-avatar">{details.icon || defaultEntryIcon(details.kind)}</span>
-                <div className="detail-title"><h1>{details.name}</h1><p>{details.username ? `${details.username} · ` : ""}{categoryFor(details.kind)}{details.code ? " · 2FA" : ""}</p></div>
+                <div className="detail-title"><h1>{details.name}</h1><p>{details.username ? `${details.username} · ` : ""}{categoryFor(details.kind, language)}{details.code ? " · 2FA" : ""}</p></div>
                 <div className="detail-actions">
-                  <button className="secondary" onClick={startEditing}>Изменить</button>
+                  <button className="secondary" onClick={startEditing}>{t("Изменить")}</button>
                   {(details.password || details.apiToken || details.sshPrivateKey) && (
                     <button
                       className="primary copy-primary"
                       onClick={() => void copyValue(details.password || details.apiToken || details.sshPrivateKey, "credential")}
-                    >{copied === "credential" ? "Скопировано" : details.kind === "ssh_key" ? "Копировать ключ" : details.kind === "api_token" ? "Копировать токен" : details.kind === "wifi_network" ? "Копировать пароль Wi-Fi" : "Копировать пароль"}</button>
+                    >{copied === "credential" ? t("Скопировано") : details.kind === "ssh_key" ? t("Копировать ключ") : details.kind === "api_token" ? t("Копировать токен") : details.kind === "wifi_network" ? t("Копировать пароль Wi-Fi") : t("Копировать пароль")}</button>
                   )}
-                  <button className="delete-entry" onClick={() => void removeEntry()} title="Удалить запись" aria-label="Удалить запись">×</button>
+                  <button className="delete-entry" onClick={() => void removeEntry()} title={t("Удалить запись")} aria-label={t("Удалить запись")}>×</button>
                 </div>
               </div>
               <div className="detail-card">
                 {(details.kind === "password" || details.kind === "wifi_network") && <>
-                  {details.kind === "password" && details.username && <DetailField label="Имя пользователя или логин" value={details.username} onError={setError} />}
+                  {details.kind === "password" && details.username && <DetailField label={t("Имя пользователя или логин")} value={details.username} language={language} onError={setError} />}
                   <div className="detail-field">
-                    <span className="field-label">{details.kind === "wifi_network" ? "Пароль сети Wi-Fi" : "Пароль для входа на сайт"}</span>
+                    <span className="field-label">{t(details.kind === "wifi_network" ? "Пароль сети Wi-Fi" : "Пароль для входа на сайт")}</span>
                     <div className="password-line">
                       <div className="masked-value">
-                        {details.password ? showPassword ? details.password : "•".repeat(Math.min(details.password.length, 24)) : <span className="field-empty">Пароль не задан</span>}
+                        {details.password ? showPassword ? details.password : "•".repeat(Math.min(details.password.length, 24)) : <span className="field-empty">{t("Пароль не задан")}</span>}
                         {details.password && <div className="strength-bars"><i /><i /><i /><i /></div>}
                       </div>
-                      {details.password && <button className="inline-action" onClick={() => setShowPassword(!showPassword)}>{showPassword ? "Скрыть" : "Показать"}</button>}
-                      {details.password && <button className="inline-action" onClick={() => void copyValue(details.password, "password")}>{copied === "password" ? "Скопировано" : "Копировать"}</button>}
+                      {details.password && <button className="inline-action" onClick={() => setShowPassword(!showPassword)}>{showPassword ? t("Скрыть") : t("Показать")}</button>}
+                      {details.password && <button className="inline-action" onClick={() => void copyValue(details.password, "password")}>{copied === "password" ? t("Скопировано") : t("Копировать")}</button>}
                     </div>
                   </div>
                 </>}
-                {details.kind === "api_token" && <DetailField label="Секретный ключ API" value={details.apiToken} secret onError={setError} />}
-                {details.kind === "ssh_key" && <DetailField label="Закрытый ключ для входа на сервер" value={details.sshPrivateKey} secret multiline onError={setError} />}
+                {details.kind === "api_token" && <DetailField label={t("Секретный ключ API")} value={details.apiToken} secret language={language} onError={setError} />}
+                {details.kind === "ssh_key" && <DetailField label={t("Закрытый ключ для входа на сервер")} value={details.sshPrivateKey} secret multiline language={language} onError={setError} />}
                         {details.code && <div className="detail-field totp-field">
-                  <div><span className="field-label">Код двухфакторной защиты</span><span className="totp-code" key={details.code}>{details.code.slice(0, details.code.length / 2)} {details.code.slice(details.code.length / 2)}</span></div>
-                  <span className="totp-time">обновится через {details.secondsRemaining} с</span>
+                  <div><span className="field-label">{t("Код двухфакторной защиты")}</span><span className="totp-code" key={details.code}>{details.code.slice(0, details.code.length / 2)} {details.code.slice(details.code.length / 2)}</span></div>
+                  <span className="totp-time">{t("обновится через")} {details.secondsRemaining} {language === "ru" ? "с" : "s"}</span>
                   <div className="detail-progress"><i style={{ width: `${((details.secondsRemaining ?? 0) / 30) * 100}%` }} /></div>
-                  <button className="totp-copy" onClick={() => void copyValue(details.code!, "totp")}>{copied === "totp" ? "Скопировано" : "Копировать код"}</button>
+                  <button className="totp-copy" onClick={() => void copyValue(details.code!, "totp")}>{copied === "totp" ? t("Скопировано") : t("Копировать код")}</button>
                 </div>}
-                {details.url && <DetailField label="Адрес сайта или сервиса" value={details.url} onError={setError} />}
-                {details.notes && <DetailField label="Заметка для себя" value={details.notes} multiline onError={setError} />}
-                {(details.kind === "password" || details.kind === "wifi_network") && !details.username && !details.password && !details.code && !details.url && !details.notes && <div className="detail-field"><span className="field-empty">В этой записи пока нет дополнительных данных.</span></div>}
+                {details.url && <DetailField label={t("Адрес сайта или сервиса")} value={details.url} language={language} onError={setError} />}
+                {details.notes && <DetailField label={t("Заметка для себя")} value={details.notes} multiline language={language} onError={setError} />}
+                {(details.kind === "password" || details.kind === "wifi_network") && !details.username && !details.password && !details.code && !details.url && !details.notes && <div className="detail-field"><span className="field-empty">{t("В этой записи пока нет дополнительных данных.")}</span></div>}
               </div>
               {error && <p className="error">{error}</p>}
-              <footer className="security-note">Шифрование: XChaCha20-Poly1305 · KDF: Argon2id · данные только на этом устройстве</footer>
+              <footer className="security-note">{t("Шифрование: XChaCha20-Poly1305 · KDF: Argon2id · данные только на этом устройстве")}</footer>
             </>
           ) : (
             <div className="detail-placeholder">
               <span className="placeholder-mark">F</span>
-              <h2>Выберите запись</h2>
-              <p>Или создайте новую, чтобы начать работу с хранилищем.</p>
-              <button className="primary" onClick={startNewEntry}>Добавить запись</button>
+              <h2>{t("Выберите запись")}</h2>
+              <p>{t("Или создайте новую, чтобы начать работу с хранилищем.")}</p>
+              <button className="primary" onClick={startNewEntry}>{t("Добавить запись")}</button>
             </div>
           )}
         </section>
@@ -880,16 +915,16 @@ function App() {
       {importPath && (
         <div className="modal-backdrop" role="presentation">
           <form className="import-dialog" onSubmit={importVault} role="dialog" aria-modal="true" aria-labelledby="import-title">
-            <span className="dialog-kicker">ИМПОРТ РЕЗЕРВНОЙ КОПИИ</span>
-            <h2 id="import-title">Заменить содержимое хранилища?</h2>
-            <p className="dialog-copy">Выбранный зашифрованный файл будет проверен и импортирован. Все текущие записи заменятся записями из копии.</p>
-            <label className="selected-file">Выбранная резервная копия<input value={importPath} readOnly /></label>
-            <label className="import-password">Пароль, которым зашифрована эта копия<input type="password" autoFocus autoComplete="off" value={importPassword} onChange={(event) => setImportPassword(event.target.value)} required /></label>
-            <label className="checkbox-label confirm-import"><input type="checkbox" checked={confirmImport} onChange={(event) => setConfirmImport(event.target.checked)} /> Я понимаю, что текущие записи будут заменены</label>
+            <span className="dialog-kicker">{t("ИМПОРТ РЕЗЕРВНОЙ КОПИИ")}</span>
+            <h2 id="import-title">{t("Заменить содержимое хранилища?")}</h2>
+            <p className="dialog-copy">{t("Выбранный зашифрованный файл будет проверен и импортирован. Все текущие записи заменятся записями из копии.")}</p>
+            <label className="selected-file">{t("Выбранная резервная копия")}<input value={importPath} readOnly /></label>
+            <label className="import-password">{t("Пароль, которым зашифрована эта копия")}<input type="password" autoFocus autoComplete="off" value={importPassword} onChange={(event) => setImportPassword(event.target.value)} required /></label>
+            <label className="checkbox-label confirm-import"><input type="checkbox" checked={confirmImport} onChange={(event) => setConfirmImport(event.target.checked)} /> {t("Я понимаю, что текущие записи будут заменены")}</label>
             {error && <p className="error" role="alert">{error}</p>}
             <div className="dialog-actions">
-              <button type="button" className="secondary" disabled={busy} onClick={() => { setImportPath(""); setError(""); }}>Отмена</button>
-              <button className="primary" disabled={busy || !confirmImport}>{busy ? "Импорт…" : "Импортировать"}</button>
+              <button type="button" className="secondary" disabled={busy} onClick={() => { setImportPath(""); setError(""); }}>{t("Отмена")}</button>
+              <button className="primary" disabled={busy || !confirmImport}>{busy ? t("Импорт…") : t("Импортировать")}</button>
             </div>
           </form>
         </div>
@@ -897,37 +932,37 @@ function App() {
       {shareDialogOpen && (
         <div className="modal-backdrop" role="presentation">
           <section className="import-dialog share-dialog" role="dialog" aria-modal="true" aria-labelledby="share-title">
-            <span className="dialog-kicker">ТАБЛИЦА GOOGLE · СКВОЗНОЕ ШИФРОВАНИЕ</span>
-            <h2 id="share-title">Подключение таблицы</h2>
+            <span className="dialog-kicker">{t("ТАБЛИЦА GOOGLE · СКВОЗНОЕ ШИФРОВАНИЕ")}</span>
+            <h2 id="share-title">{t("Подключение таблицы")}</h2>
             <p className="dialog-copy">
-              Однократно разверните Apps Script-мост для своей таблицы, затем blau сможет читать её и добавлять/обновлять записи. Удаление записей из общего набора пока не синхронизируется. В таблице хранится только шифротекст.
+              {t("Однократно разверните Apps Script-мост для своей таблицы, затем blau сможет читать её и добавлять/обновлять записи. Удаление записей из общего набора пока не синхронизируется. В таблице хранится только шифротекст.")}
             </p>
-            <label className="selected-file">Адрес скрипта-посредника Google
-              <small>Ссылка заканчивается на /exec. Это адрес опубликованного Apps Script, а не ссылка на таблицу.</small>
+            <label className="selected-file">{t("Адрес скрипта-посредника Google")}
+              <small>{t("Ссылка заканчивается на /exec. Это адрес опубликованного Apps Script, а не ссылка на таблицу.")}</small>
               <input type="url" autoComplete="off" value={shareScriptUrl} onChange={(event) => setShareScriptUrl(event.target.value)} placeholder="https://script.google.com/macros/s/…/exec" />
             </label>
-            <label className="selected-file">Секретный код доступа к скрипту
-              <small>Создайте код кнопкой справа и укажите тот же код в настройках скрипта.</small>
+            <label className="selected-file">{t("Секретный код доступа к скрипту")}
+              <small>{t("Создайте код кнопкой справа и укажите тот же код в настройках скрипта.")}</small>
               <div className="share-key-row">
                 <input type="password" autoComplete="new-password" value={shareAccessToken} onChange={(event) => setShareAccessToken(event.target.value)} />
-                <button type="button" className="secondary" onClick={() => void generateBridgeToken()}>Создать</button>
-                <button type="button" className="secondary" onClick={() => void copyShareValue(shareAccessToken)}>Копировать</button>
+                <button type="button" className="secondary" onClick={() => void generateBridgeToken()}>{t("Создать")}</button>
+                <button type="button" className="secondary" onClick={() => void copyShareValue(shareAccessToken)}>{t("Копировать")}</button>
               </div>
             </label>
-            <label className="selected-file">Ссылка на общую таблицу Google
-              <small>Вставьте ссылку на саму таблицу, которой пользуются участники.</small>
+            <label className="selected-file">{t("Ссылка на общую таблицу Google")}
+              <small>{t("Вставьте ссылку на саму таблицу, которой пользуются участники.")}</small>
               <input type="url" autoComplete="off" value={shareSheetUrl} onChange={(event) => setShareSheetUrl(event.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" />
             </label>
-            <label className="selected-file">Общий ключ шифрования паролей
-              <small>Одинаковый у всех участников. Передавайте его отдельно от ссылки на таблицу.</small>
+            <label className="selected-file">{t("Общий ключ шифрования паролей")}
+              <small>{t("Одинаковый у всех участников. Передавайте его отдельно от ссылки на таблицу.")}</small>
               <div className="share-key-row">
                 <input type="password" autoComplete="off" value={shareKeyInput} onChange={(event) => setShareKeyInput(event.target.value)} />
-                <button type="button" className="secondary" onClick={() => void copyShareValue(shareKeyInput)}>Копировать</button>
+                <button type="button" className="secondary" onClick={() => void copyShareValue(shareKeyInput)}>{t("Копировать")}</button>
               </div>
             </label>
-            <p className="share-warning">Секретный код скрипта и ключ шифрования сохраняются внутри защищённого хранилища blau. Чтобы подключиться к общему доступу, участникам нужны адрес скрипта, секретный код, ссылка на таблицу и одинаковый ключ шифрования.</p>
+            <p className="share-warning">{t("Секретный код скрипта и ключ шифрования сохраняются внутри защищённого хранилища blau. Чтобы подключиться к общему доступу, участникам нужны адрес скрипта, секретный код, ссылка на таблицу и одинаковый ключ шифрования.")}</p>
             <div className="share-entry-list">
-              <strong>Какие пароли добавить или обновить в общей таблице?</strong>
+              <strong>{t("Какие пароли добавить или обновить в общей таблице?")}</strong>
               {entries.filter((entry) => entry.kind === "password" && entry.hasPassword).map((entry) => (
                 <label className="share-entry-option" key={entry.name}>
                   <input
@@ -943,15 +978,15 @@ function App() {
                 </label>
               ))}
               {!entries.some((entry) => entry.kind === "password" && entry.hasPassword) && (
-                <p className="dialog-copy">Нет записей с заданным паролем.</p>
+                <p className="dialog-copy">{t("Нет записей с заданным паролем.")}</p>
               )}
             </div>
             <div className="share-sync-actions">
               <button type="button" className="primary" disabled={shareBusy || !shareSelection.length} onClick={() => void publishToGoogleSheet()}>
-                {shareBusy ? "Синхронизация…" : "Добавить / обновить выбранное"}
+                {shareBusy ? t("Синхронизация…") : t("Добавить / обновить выбранное")}
               </button>
               <button type="button" className="secondary" disabled={shareBusy} onClick={() => void readFromGoogleSheet()}>
-                {shareBusy ? "Чтение…" : "Прочитать из таблицы"}
+                {shareBusy ? t("Чтение…") : t("Прочитать из таблицы")}
               </button>
             </div>
             {receivedShare && (
@@ -959,9 +994,9 @@ function App() {
                 {receivedShare.map((entry) => (
                   <div className="received-share-entry" key={entry.name}>
                     <strong>{entry.name}</strong>
-                    {entry.username && <span>Имя пользователя: {entry.username}</span>}
-                    {entry.url && <span>Адрес сайта или сервиса: {entry.url}</span>}
-                    <button type="button" className="inline-action" onClick={() => void copyShareValue(entry.password)}>Скопировать пароль</button>
+                    {entry.username && <span>{t("Имя пользователя: ")}{entry.username}</span>}
+                    {entry.url && <span>{t("Адрес сайта или сервиса")}: {entry.url}</span>}
+                    <button type="button" className="inline-action" onClick={() => void copyShareValue(entry.password)}>{t("Скопировать пароль")}</button>
                   </div>
                 ))}
               </div>
@@ -969,7 +1004,7 @@ function App() {
             {shareError && <p className="error" role="alert">{shareError}</p>}
             {shareNotice && <p className="share-copy-notice" role="status">{shareNotice}</p>}
             <div className="dialog-actions">
-              <button type="button" className="secondary" onClick={closeShareDialog}>Закрыть и очистить</button>
+              <button type="button" className="secondary" onClick={closeShareDialog}>{t("Закрыть и очистить")}</button>
             </div>
           </section>
         </div>
@@ -977,19 +1012,20 @@ function App() {
       {settingsOpen && (
         <div className="modal-backdrop" role="presentation">
           <section className="import-dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-            <span className="dialog-kicker">ПЕРСОНАЛИЗАЦИЯ И БЕЗОПАСНОСТЬ</span>
-            <h2 id="settings-title">Настройки приложения</h2>
+            <span className="dialog-kicker">{t("ПЕРСОНАЛИЗАЦИЯ И БЕЗОПАСНОСТЬ")}</span>
+            <h2 id="settings-title">{t("Настройки приложения")}</h2>
             <div className="settings-options">
-              <label>Тема оформления
+              {renderLanguageSelect()}
+              <label>{t("Тема оформления")}
                 <select value={appearance.theme} onChange={(event) => setAppearance({ ...appearance, theme: event.target.value as Appearance["theme"] })}>
-                  <option value="blau">Blau — тёмная</option>
-                  <option value="midnight">Полночь — синяя</option>
-                  <option value="forest">Лес — зелёная</option>
-                  <option value="light">Светлая</option>
+                  <option value="blau">{t("Blau — тёмная")}</option>
+                  <option value="midnight">{t("Полночь — синяя")}</option>
+                  <option value="forest">{t("Лес — зелёная")}</option>
+                  <option value="light">{t("Светлая")}</option>
                 </select>
               </label>
               <fieldset className="accent-picker">
-                <legend>Акцентный цвет</legend>
+                <legend>{t("Акцентный цвет")}</legend>
                 <div className="accent-options">
                   {accentColors.map((accent) => (
                     <button
@@ -997,39 +1033,39 @@ function App() {
                       type="button"
                       className={`accent-option ${appearance.accent === accent.value ? "selected" : ""}`}
                       style={{ "--swatch": accent.value } as React.CSSProperties}
-                      aria-label={accent.label}
+                      aria-label={t(accent.label)}
                       aria-pressed={appearance.accent === accent.value}
-                      title={accent.label}
+                      title={t(accent.label)}
                       onClick={() => setAppearance({ ...appearance, accent: accent.value })}
                     />
                   ))}
                 </div>
               </fieldset>
-              <label>Плотность списка
+              <label>{t("Плотность списка")}
                 <select value={appearance.density} onChange={(event) => setAppearance({ ...appearance, density: event.target.value as Appearance["density"] })}>
-                  <option value="comfortable">Свободная</option>
-                  <option value="compact">Компактная</option>
+                  <option value="comfortable">{t("Свободная")}</option>
+                  <option value="compact">{t("Компактная")}</option>
                 </select>
               </label>
-              <label>Размер текста
+              <label>{t("Размер текста")}
                 <select value={appearance.fontSize} onChange={(event) => setAppearance({ ...appearance, fontSize: event.target.value as Appearance["fontSize"] })}>
-                  <option value="small">Маленький</option>
-                  <option value="standard">Обычный</option>
-                  <option value="large">Крупный</option>
+                  <option value="small">{t("Маленький")}</option>
+                  <option value="standard">{t("Обычный")}</option>
+                  <option value="large">{t("Крупный")}</option>
                 </select>
               </label>
             </div>
             <form className="password-change" onSubmit={changeMasterPassword}>
-              <h3>Изменить мастер-пароль</h3>
-              <p className="dialog-copy">Все записи будут заново зашифрованы. Для резервных копий, сделанных ранее, останется нужен прежний пароль.</p>
-              <label>Текущий мастер-пароль<input type="password" autoComplete="current-password" value={currentMasterPassword} onChange={(event) => setCurrentMasterPassword(event.target.value)} required /></label>
-              <label>Новый мастер-пароль<input type="password" autoComplete="new-password" minLength={12} value={newMasterPassword} onChange={(event) => setNewMasterPassword(event.target.value)} required /></label>
-              <label>Повторите новый мастер-пароль<input type="password" autoComplete="new-password" minLength={12} value={confirmMasterPassword} onChange={(event) => setConfirmMasterPassword(event.target.value)} required /></label>
+              <h3>{t("Изменить мастер-пароль")}</h3>
+              <p className="dialog-copy">{t("Все записи будут заново зашифрованы. Для резервных копий, сделанных ранее, останется нужен прежний пароль.")}</p>
+              <label>{t("Текущий мастер-пароль")}<input type="password" autoComplete="current-password" value={currentMasterPassword} onChange={(event) => setCurrentMasterPassword(event.target.value)} required /></label>
+              <label>{t("Новый мастер-пароль")}<input type="password" autoComplete="new-password" minLength={12} value={newMasterPassword} onChange={(event) => setNewMasterPassword(event.target.value)} required /></label>
+              <label>{t("Повторите новый мастер-пароль")}<input type="password" autoComplete="new-password" minLength={12} value={confirmMasterPassword} onChange={(event) => setConfirmMasterPassword(event.target.value)} required /></label>
               {settingsError && <p className="error" role="alert">{settingsError}</p>}
               {settingsNotice && <p className="settings-notice" role="status">{settingsNotice}</p>}
               <div className="dialog-actions">
-                <button type="button" className="secondary" onClick={closeSettings} disabled={passwordChangeBusy}>Закрыть</button>
-                <button className="primary" disabled={passwordChangeBusy}>{passwordChangeBusy ? "Изменение…" : "Изменить пароль"}</button>
+                <button type="button" className="secondary" onClick={closeSettings} disabled={passwordChangeBusy}>{t("Закрыть")}</button>
+                <button className="primary" disabled={passwordChangeBusy}>{passwordChangeBusy ? t("Изменение…") : t("Изменить пароль")}</button>
               </div>
             </form>
           </section>
@@ -1039,25 +1075,26 @@ function App() {
   );
 }
 
-function DetailField({ label, value, secret = false, multiline = false, onError }: { label: string; value: string; secret?: boolean; multiline?: boolean; onError: (message: string) => void }) {
+function DetailField({ label, value, secret = false, multiline = false, language, onError }: { label: string; value: string; secret?: boolean; multiline?: boolean; language: Language; onError: (message: string) => void }) {
   const [visible, setVisible] = useState(!secret);
   const [copied, setCopied] = useState(false);
+  const t = (source: string) => translate(language, source);
   async function copy() {
     try {
       await navigator.clipboard.writeText(value);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     } catch (err) {
-      onError(`Не удалось скопировать значение записи: ${String(err)}`);
+      onError(`${t("Не удалось скопировать значение записи: ")}${String(err)}`);
     }
   }
   return (
     <div className="detail-field">
       <span className="field-label">{label}</span>
       <div className="field-value-row">
-        <span className={`field-value ${multiline ? "multiline" : ""}`}>{value ? visible ? value : "•".repeat(Math.min(value.length, 28)) : <span className="field-empty">Не задано</span>}</span>
-        {value && secret && <button className="inline-action" onClick={() => setVisible(!visible)}>{visible ? "Скрыть" : "Показать"}</button>}
-        {value && <button className="inline-action" onClick={() => void copy()}>{copied ? "Скопировано" : "Копировать"}</button>}
+        <span className={`field-value ${multiline ? "multiline" : ""}`}>{value ? visible ? value : "•".repeat(Math.min(value.length, 28)) : <span className="field-empty">{t("Не задано")}</span>}</span>
+        {value && secret && <button className="inline-action" onClick={() => setVisible(!visible)}>{visible ? t("Скрыть") : t("Показать")}</button>}
+        {value && <button className="inline-action" onClick={() => void copy()}>{copied ? t("Скопировано") : t("Копировать")}</button>}
       </div>
     </div>
   );
